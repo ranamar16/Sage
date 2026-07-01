@@ -4,6 +4,7 @@
  * Usage: pnpm run research
  */
 
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -385,6 +386,9 @@ header h1 { font-size: 15px; font-weight: 600; color: #fff; letter-spacing: -0.0
 .queue-list { display: flex; flex-direction: column; gap: 6px; }
 .queue-item { display: flex; align-items: flex-start; gap: 10px; background: #111; border: 1px solid #1e1e1e; border-radius: 6px; padding: 10px 12px; }
 .queue-item-text { flex: 1; font-size: 13px; color: #ccc; line-height: 1.45; }
+.queue-send { flex-shrink: 0; background: #1a2a1a; border: 1px solid #2a4a2a; color: #6dbf6d; font-size: 11px; font-weight: 600; cursor: pointer; padding: 3px 8px; border-radius: 4px; line-height: 1.4; }
+.queue-send:hover { background: #223322; border-color: #3a6a3a; }
+.queue-send:disabled { opacity: 0.5; cursor: default; }
 .queue-remove { flex-shrink: 0; background: none; border: none; color: #444; font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1; margin-top: -1px; }
 .queue-remove:hover { color: #e05555; }
 .hist-grid { display: flex; flex-direction: column; gap: 10px; }
@@ -758,6 +762,7 @@ function renderQueue(items) {
   el.innerHTML = \`<div class="queue-list">\${items.map((item, i) => \`
     <div class="queue-item">
       <div class="queue-item-text">\${esc(item)}</div>
+      <button class="queue-send" onclick="sendToSage(\${i})" title="Send to Sage now">→ Sage</button>
       <button class="queue-remove" onclick="removeQueueItem(\${i})" title="Remove">×</button>
     </div>
   \`).join('')}</div>\`;
@@ -766,6 +771,23 @@ function renderQueue(items) {
 async function removeQueueItem(index) {
   await fetch(\`/api/followups/\${index}\`, { method: 'DELETE' });
   loadQueue();
+}
+
+async function sendToSage(index) {
+  const btn = document.querySelectorAll('.queue-send')[index];
+  if (btn) { btn.textContent = '…'; btn.disabled = true; }
+  try {
+    const res = await fetch(\`/api/dispatch-queue/\${index}\`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      if (btn) { btn.textContent = '✓ Sent'; }
+      setTimeout(() => loadQueue(), 1500);
+    } else {
+      if (btn) { btn.textContent = '✗ Error'; btn.disabled = false; }
+    }
+  } catch {
+    if (btn) { btn.textContent = '✗ Error'; btn.disabled = false; }
+  }
 }
 
 async function loadMonitor() {
@@ -878,6 +900,24 @@ const server = http.createServer(async (req: IncomingMessage, res: ServerRespons
       writeFollowUps(items);
     }
     return json(res, { ok: true });
+  }
+
+  // Dispatch queue item to Sage immediately
+  const dispatchMatch = url.pathname.match(/^\/api\/dispatch-queue\/(\d+)$/);
+  if (dispatchMatch && method === 'POST') {
+    const idx = Number(dispatchMatch[1]);
+    const items = parseFollowUps();
+    if (idx < 0 || idx >= items.length) return json(res, { ok: false, error: 'Index out of range' });
+    try {
+      execFileSync(
+        process.execPath,
+        [path.join(process.cwd(), 'node_modules/tsx/dist/cli.cjs'), path.join(process.cwd(), 'scripts/queue-check.ts')],
+        { cwd: process.cwd() },
+      );
+      return json(res, { ok: true });
+    } catch (e: unknown) {
+      return json(res, { ok: false, error: String(e) });
+    }
   }
 
   // Monitor snapshot (one-shot)
