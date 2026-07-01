@@ -33,6 +33,23 @@ const SDK_DISALLOWED_TOOLS = [
   'ExitPlanMode',
   'EnterWorktree',
   'ExitWorktree',
+  // Sub-agent fan-out disabled install-wide for cost control: a single research
+  // run once spawned 114 parallel agents and burned 92% of the daily limit.
+  // Agents work single-threaded. The PreToolUse hook also hard-blocks these.
+  'Task',
+  'TaskOutput',
+  'TaskStop',
+  'TeamCreate',
+  'TeamDelete',
+  'SendMessage',
+];
+
+// Built-in Claude Code skills that bypass the allowedTools filter when
+// executed via the Skill tool. These are blocked because they spawn
+// uncontrolled subagent fan-out (deep-research alone produced 100+ agents).
+// Purpose-built group-level skills (e.g. /sage-research) replace them.
+const BLOCKED_SKILLS = [
+  'deep-research',
 ];
 
 // Tool allowlist for NanoClaw agent containers. MCP-tool entries are derived
@@ -49,12 +66,6 @@ const TOOL_ALLOWLIST = [
   'Grep',
   'WebSearch',
   'WebFetch',
-  'Task',
-  'TaskOutput',
-  'TaskStop',
-  'TeamCreate',
-  'TeamDelete',
-  'SendMessage',
   'TodoWrite',
   'ToolSearch',
   'Skill',
@@ -166,6 +177,15 @@ const preToolUseHook: HookCallback = async (input) => {
       decision: 'block',
       stopReason: `Tool '${toolName}' is not available in this environment — use the nanoclaw equivalent.`,
     } as unknown as ReturnType<HookCallback>;
+  }
+  if (toolName === 'Skill') {
+    const skillName = typeof i.tool_input?.skill === 'string' ? i.tool_input.skill : '';
+    if (BLOCKED_SKILLS.includes(skillName)) {
+      return {
+        decision: 'block',
+        stopReason: `The '/${skillName}' skill is not available in this environment — it spawns uncontrolled agent fan-out. Use the purpose-built equivalent (e.g. /sage-research).`,
+      } as unknown as ReturnType<HookCallback>;
+    }
   }
   // Bash exposes its timeout via the tool_input.timeout field (ms). Any other
   // tool: no declared timeout.
