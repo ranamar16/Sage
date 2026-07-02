@@ -22,6 +22,7 @@
     "ncl": "tsx src/cli/client.ts",
     "research": "tsx scripts/research-library.ts",
     "queue-check": "tsx scripts/queue-check.ts",
+    "memory-sync": "tsx scripts/memory-sync.ts",
     "chat": "tsx scripts/chat.ts",
     "auth": "tsx src/whatsapp-auth.ts",
     "lint": "eslint src/",
